@@ -9705,7 +9705,9 @@ class assign {
     /**
      * Retrieve sendstudentnotifications setting.
      *
-     * Globally, if allownotifycontrol setting is disabled, retrieve the global sendstudentnotifications setting.
+     * If the global "allownotifycontrol" setting is enabled,
+     * return the activity's "sendstudentnotifications" value.
+     * Otherwise, return the global "sendstudentnotifications" setting.
      *
      * @return bool
      */

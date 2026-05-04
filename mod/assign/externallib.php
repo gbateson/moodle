@@ -1599,21 +1599,21 @@ class mod_assign_external extends \mod_assign\external\external_api {
         $mform = new mod_assign_grade_form(null, $formparams, 'post', '', null, true, $data);
         $validateddata = $mform->get_data();
 
-        // If the global setting to show the notification checkbox is disabled, BUT the global or instance setting
-        // to still send the notifications is enabled - that means we don't give the teacher a choice. They're sent.
-        $allownotificationchoice = (bool) get_config('assign', 'allownotifycontrol');
-        if (!$allownotificationchoice) {
-            $validateddata->sendstudentnotifications = (int) $assignment->get_sendstudentnotifications();
-        }
-
         if ($validateddata) {
+            // If global settings do not allow teachers to choose
+            // whether or not to notify students of grades/feedback,
+            // we override "sendstudentnotifications" with the global setting.
+            $allownotifycontrol = (bool) get_config('assign', 'allownotifycontrol');
+            if (!$allownotifycontrol) {
+                $validateddata->sendstudentnotifications = (int) $assignment->get_sendstudentnotifications();
+            }
             $assignment->save_grade($params['userid'], $validateddata);
         } else {
+            // Some of the data entered was not valid. e.g. missing rubric field.
             $warnings[] = self::generate_warning($params['assignmentid'],
                                                  'couldnotsavegrade',
                                                  'Form validation failed.');
         }
-
 
         return $warnings;
     }
