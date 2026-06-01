@@ -6432,106 +6432,97 @@ class assign {
     }
 
     /**
-     * Returns a list of teachers that should be grading given submission.
+     * Get a list of users who should receive notifications regarding a student's submission.
      *
-     * @param int $userid The submission to grade
-     * @return array
+     * @param int $userid The student user ID.
+     * @return array An associative array of user objects indexed by user ID.
      */
-    protected function get_graders($userid) {
-        // Potential graders should be active users only.
-        $potentialgraders = get_enrolled_users($this->context, "mod/assign:grade", null, 'u.*', null, null, null, true);
-
-        $graders = array();
-        if (groups_get_activity_groupmode($this->get_course_module()) == SEPARATEGROUPS) {
-            if ($groups = groups_get_all_groups($this->get_course()->id, $userid, $this->get_course_module()->groupingid)) {
-                foreach ($groups as $group) {
-                    foreach ($potentialgraders as $grader) {
-                        if ($grader->id == $userid) {
-                            // Do not send self.
-                            continue;
-                        }
-                        if (groups_is_member($group->id, $grader->id)) {
-                            $graders[$grader->id] = $grader;
-                        }
-                    }
-                }
-            } else {
-                // User not in group, try to find graders without group.
-                foreach ($potentialgraders as $grader) {
-                    if ($grader->id == $userid) {
-                        // Do not send self.
-                        continue;
-                    }
-                    if (!groups_has_membership($this->get_course_module(), $grader->id)) {
-                        $graders[$grader->id] = $grader;
-                    }
-                }
-            }
-        } else {
-            foreach ($potentialgraders as $grader) {
-                if ($grader->id == $userid) {
-                    // Do not send self.
-                    continue;
-                }
-                // Must be enrolled.
-                if (is_enrolled($this->get_course_context(), $grader->id)) {
-                    $graders[$grader->id] = $grader;
-                }
-            }
-        }
-        return $graders;
+    protected function get_notifiable_users($userid) {
+        return $this->get_filtered_graders($userid, 'mod/assign:receivegradernotifications');
     }
 
     /**
-     * Returns a list of users that should receive notification about given submission.
+     * Get a list of users who are eligible to grade a student's submission.
      *
-     * @param int $userid The submission to grade
-     * @return array
+     * @param int $userid The student user ID.
+     * @return array An associative array of user objects indexed by user ID.
      */
-    protected function get_notifiable_users($userid) {
-        // Potential users should be active users only.
-        $potentialusers = get_enrolled_users($this->context, "mod/assign:receivegradernotifications",
-                                             null, 'u.*', null, null, null, true);
+    protected function get_graders($userid) {
+        return $this->get_filtered_graders($userid, 'mod/assign:grade', false);
+    }
 
-        $notifiableusers = array();
+    /**
+     * Get a filtered list of graders for a user based on capabilities, group settings, and marking allocation.
+     *
+     * @param int $userid The student user ID.
+     * @param string $capability The Moodle capability to filter the initial user pool.
+     * @param bool $checkallocation Optional. Filter by allocated marker if active. Defaults to true.
+     * @return array An associative array of user objects indexed by user ID.
+     */
+    protected function get_filtered_graders(int $userid, string $capability, bool $checkallocation = true): array {
+        // Fetch all course graders based on the requested capability.
+        $coursegraders = get_enrolled_users($this->context, $capability, null, 'u.*', null, null, null, true);
+        // If this course uses separate groups, get the list of groups to which the student user belongs.
         if (groups_get_activity_groupmode($this->get_course_module()) == SEPARATEGROUPS) {
-            if ($groups = groups_get_all_groups($this->get_course()->id, $userid, $this->get_course_module()->groupingid)) {
-                foreach ($groups as $group) {
-                    foreach ($potentialusers as $potentialuser) {
-                        if ($potentialuser->id == $userid) {
-                            // Do not send self.
-                            continue;
-                        }
-                        if (groups_is_member($group->id, $potentialuser->id)) {
-                            $notifiableusers[$potentialuser->id] = $potentialuser;
-                        }
-                    }
-                }
-            } else {
-                // User not in group, try to find graders without group.
-                foreach ($potentialusers as $potentialuser) {
-                    if ($potentialuser->id == $userid) {
-                        // Do not send self.
-                        continue;
-                    }
-                    if (!groups_has_membership($this->get_course_module(), $potentialuser->id)) {
-                        $notifiableusers[$potentialuser->id] = $potentialuser;
-                    }
-                }
-            }
+            $separategroups = groups_get_all_groups($this->get_course()->id, $userid, $this->get_course_module()->groupingid);
         } else {
-            foreach ($potentialusers as $potentialuser) {
-                if ($potentialuser->id == $userid) {
-                    // Do not send self.
-                    continue;
-                }
-                // Must be enrolled.
-                if (is_enrolled($this->get_course_context(), $potentialuser->id)) {
-                    $notifiableusers[$potentialuser->id] = $potentialuser;
+            $separategroups = false;
+        }
+
+        // MDL-46702: If marker allocation is active, only notify the allocated marker.
+        if ($checkallocation && $this->get_instance()->markingallocation) {
+            $userflags = $this->get_user_flags($userid, false);
+            if ($userflags && !empty($userflags->allocatedmarker)) {
+                $allocatedmarkerid = $userflags->allocatedmarker;
+                // Check the allocated marker has the required capability in this course.
+                // Usually this will be true, but it is possible that the capability was
+                // withdrawn from the user after they were allocated as a marker.
+                if (array_key_exists($allocatedmarkerid, $coursegraders)) {
+                    if ($this->verify_grader($userid, $allocatedmarkerid, $separategroups)) {
+                        return [$allocatedmarkerid => $coursegraders[$allocatedmarkerid]];
+                    }
                 }
             }
         }
-        return $notifiableusers;
+
+        $filteredusers = [];
+        foreach ($coursegraders as $coursegrader) {
+            if ($this->verify_grader($userid, $coursegrader->id, $separategroups)) {
+                $filteredusers[$coursegrader->id] = $coursegrader;
+            }
+        }
+        return $filteredusers;
+    }
+
+    /**
+     * Verify if a specific grader is permitted to grade a specified user based on identity and group constraints.
+     *
+     * @param int $userid The student user ID.
+     * @param int $coursegraderid The user ID of a grader who is enrolled in the current course.
+     * @param array|bool $separategroups Array of student's groups, or false if separate groups mode is disabled.
+     * @return bool True if the grader is valid for this student; otherwise, false.
+     */
+    protected function verify_grader(int $userid, int $coursegraderid, array|bool $separategroups): bool {
+        // Users cannot grade their own work.
+        if ($userid == $coursegraderid) {
+            return false;
+        }
+        // If course does not use separate groups, grader can grade.
+        if ($separategroups === false) {
+            return true;
+        }
+        if ($separategroups === []) {
+            // Course has separate groups, but this user has no groups, so check that
+            // the grader also has no groups. We already know the grader is enrolled.
+            return (!groups_has_membership($this->get_course_module(), $coursegraderid));
+        }
+        // Check that grader belongs to one of the user's groups.
+        foreach ($separategroups as $group) {
+            if (groups_is_member($group->id, $coursegraderid)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
