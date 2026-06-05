@@ -91,4 +91,5 @@ $string['text/html'] = 'HTML document';
 $string['text/plain'] = 'Text file';
 $string['text/rtf'] = 'RTF document';
 $string['text/vtt'] = 'Web Video Text Track';
+$string['text/x-r-markdown'] = 'RMD document';
 $string['video'] = 'Video file ({$a->EXT})';

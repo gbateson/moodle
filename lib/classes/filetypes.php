@@ -244,6 +244,8 @@ abstract class core_filetypes {
             'rhb' => array('type' => 'text/xml', 'icon' => 'markup'),
             'rm' => array('type' => 'audio/x-pn-realaudio-plugin', 'icon' => 'audio',
                     'groups' => array('audio'), 'string' => 'audio'),
+            'rmd' => array('type' => 'text/x-r-markdown', 'icon' => 'document',
+                    'groups' => array('document'), 'string' => 'document'),
             'rmvb' => array('type' => 'application/vnd.rn-realmedia-vbr', 'icon' => 'video',
                     'groups' => array('video'), 'string' => 'video'),
             'rtf' => array('type' => 'text/rtf', 'icon' => 'text', 'groups' => array('document')),
