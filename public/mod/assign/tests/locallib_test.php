@@ -2740,6 +2740,53 @@ You can see it appended to your <a href="' . $assignurl .
         $this->assertCount(0, $assign->testable_get_notifiable_users($otherstudent->id));
     }
 
+    /**
+     * Test that get_notifiable_users only returns the allocated markers when marking allocation is active,
+     * while get_graders continues to return all available course graders.
+     */
+    public function test_get_notifiable_users_with_marking_allocation(): void {
+        $this->resetAfterTest();
+
+        $course = $this->getDataGenerator()->create_course();
+
+        // Enrol multiple markers.
+        $marker1 = $this->getDataGenerator()->create_and_enrol($course, 'teacher');
+        $marker2 = $this->getDataGenerator()->create_and_enrol($course, 'teacher');
+        $editingteacher = $this->getDataGenerator()->create_and_enrol($course, 'editingteacher');
+
+        // Enrol a student.
+        $student = $this->getDataGenerator()->create_and_enrol($course, 'student');
+
+        $this->setAdminUser();
+
+        // Create an assignment instance with marking workflow and marking allocation enabled.
+        $assign = $this->create_instance($course, [
+            'markingworkflow' => 1,
+            'markingallocation' => 1,
+        ]);
+
+        // Prior to allocation, both methods should still return all 3 valid course graders.
+        $this->assertCount(3, $assign->testable_get_graders($student->id));
+        $this->assertCount(3, $assign->testable_get_notifiable_users($student->id));
+
+        // Allocate Marker 1 to explicitly mark this student.
+        $assign->update_allocated_markers($student->id, [$marker1->id]);
+
+        // ASSERTION 1: get_notifiable_users must filter strictly down to ONE recipient (Marker 1).
+        $notifiable = $assign->testable_get_notifiable_users($student->id);
+        $this->assertCount(1, $notifiable);
+        $this->assertArrayHasKey($marker1->id, $notifiable);
+        $this->assertArrayNotHasKey($marker2->id, $notifiable);
+        $this->assertArrayNotHasKey($editingteacher->id, $notifiable);
+
+        // ASSERTION 2: get_graders should NOT be restricted by allocation, leaving access open to all 3.
+        $graders = $assign->testable_get_graders($student->id);
+        $this->assertCount(3, $graders);
+        $this->assertArrayHasKey($marker1->id, $graders);
+        $this->assertArrayHasKey($marker2->id, $graders);
+        $this->assertArrayHasKey($editingteacher->id, $graders);
+    }
+
     public function test_group_members_only(): void {
         global $CFG;
 
